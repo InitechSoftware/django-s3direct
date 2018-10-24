@@ -138,7 +138,7 @@ const SparkMD5 = require('spark-md5');
                 aws_key: awsKey,
                 bucket: awsBucket,
                 awsRegion: awsRegion,
-                // computeContentMd5: true,
+                computeContentMd5: true,
                 cryptoMd5Method: computeMd5,
                 cryptoHexEncodedHash256: computeSha256,
                 partSize: 20 * 1024 * 1024,
