@@ -144,7 +144,7 @@ const SparkMD5 = require('spark-md5');
                 partSize: 20 * 1024 * 1024,
                 logging: true,
                 debug: true,
-                allowS3ExistenceOptimization: true,
+                allowS3ExistenceOptimization: false,
                 s3FileCacheHoursAgo: 12,
             }
         ).then(function (evaporate) {
@@ -192,7 +192,7 @@ const SparkMD5 = require('spark-md5');
             const uploadParameters = parseJson(response);
             switch (status) {
                 case 200:
-                    console.log("Upload parameters", uploadParameters)
+                    console.log("Upload parameters", uploadParameters);
                     initiateMultipartUpload(
                         element,
                         signerUrl,

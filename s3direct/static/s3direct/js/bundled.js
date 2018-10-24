@@ -6070,7 +6070,7 @@ const SparkMD5 = require('spark-md5');
         const link = element.querySelector('.file-link');
         const url = element.querySelector('.file-url');
         url.value = awsBucketUrl + '/' + objectKey;
-        document.querySelector('#file-img').setAttribute('src', url.value)
+        document.querySelector('#file-img').setAttribute('src', url.value);
 
         link.setAttribute('href', url.value);
         link.innerHTML = parseNameFromUrl(url.value).split('/').pop();
@@ -6134,7 +6134,7 @@ const SparkMD5 = require('spark-md5');
                 partSize: 20 * 1024 * 1024,
                 logging: true,
                 debug: true,
-                allowS3ExistenceOptimization: true,
+                allowS3ExistenceOptimization: false,
                 s3FileCacheHoursAgo: 12,
             }
         ).then(function (evaporate) {
@@ -6182,7 +6182,7 @@ const SparkMD5 = require('spark-md5');
             const uploadParameters = parseJson(response);
             switch (status) {
                 case 200:
-                    console.log("Upload parameters", uploadParameters)
+                    console.log("Upload parameters", uploadParameters);
                     initiateMultipartUpload(
                         element,
                         signerUrl,
