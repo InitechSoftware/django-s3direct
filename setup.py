@@ -13,7 +13,7 @@ setup(
     long_description=readme,
     author="Bradley Griffiths",
     author_email='bradley.griffiths@gmail.com',
-    url='https://github.com/bradleyg/django-s3direct',
+    url='https://github.com/InitechSoftware/django-s3direct.git',
     packages=['s3direct'],
     include_package_data=True,
     install_requires=['django>=1.8'],

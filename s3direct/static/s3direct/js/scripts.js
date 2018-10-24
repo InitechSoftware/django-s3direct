@@ -80,7 +80,7 @@ const SparkMD5 = require('spark-md5');
         const link = element.querySelector('.file-link');
         const url = element.querySelector('.file-url');
         url.value = awsBucketUrl + '/' + objectKey;
-        document.querySelector('#file-img').setAttribute('src', url.value)
+        document.querySelector('#file-img').setAttribute('src', url.value);
 
         link.setAttribute('href', url.value);
         link.innerHTML = parseNameFromUrl(url.value).split('/').pop();
