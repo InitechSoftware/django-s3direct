@@ -66,7 +66,8 @@ function toByteArray (b64) {
     ? validLen - 4
     : validLen
 
-  for (var i = 0; i < len; i += 4) {
+  var i
+  for (i = 0; i < len; i += 4) {
     tmp =
       (revLookup[b64.charCodeAt(i)] << 18) |
       (revLookup[b64.charCodeAt(i + 1)] << 12) |
@@ -152,6 +153,7 @@ function fromByteArray (uint8) {
 }
 
 },{}],2:[function(require,module,exports){
+(function (Buffer){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -164,6 +166,10 @@ function fromByteArray (uint8) {
 
 var base64 = require('base64-js')
 var ieee754 = require('ieee754')
+var customInspectSymbol =
+  (typeof Symbol === 'function' && typeof Symbol.for === 'function')
+    ? Symbol.for('nodejs.util.inspect.custom')
+    : null
 
 exports.Buffer = Buffer
 exports.SlowBuffer = SlowBuffer
@@ -200,7 +206,9 @@ function typedArraySupport () {
   // Can typed array instances can be augmented?
   try {
     var arr = new Uint8Array(1)
-    arr.__proto__ = { __proto__: Uint8Array.prototype, foo: function () { return 42 } }
+    var proto = { foo: function () { return 42 } }
+    Object.setPrototypeOf(proto, Uint8Array.prototype)
+    Object.setPrototypeOf(arr, proto)
     return arr.foo() === 42
   } catch (e) {
     return false
@@ -229,7 +237,7 @@ function createBuffer (length) {
   }
   // Return an augmented `Uint8Array` instance
   var buf = new Uint8Array(length)
-  buf.__proto__ = Buffer.prototype
+  Object.setPrototypeOf(buf, Buffer.prototype)
   return buf
 }
 
@@ -256,17 +264,6 @@ function Buffer (arg, encodingOrOffset, length) {
   return from(arg, encodingOrOffset, length)
 }
 
-// Fix subarray() in ES2016. See: https://github.com/feross/buffer/pull/97
-if (typeof Symbol !== 'undefined' && Symbol.species != null &&
-    Buffer[Symbol.species] === Buffer) {
-  Object.defineProperty(Buffer, Symbol.species, {
-    value: null,
-    configurable: true,
-    enumerable: false,
-    writable: false
-  })
-}
-
 Buffer.poolSize = 8192 // not used by this implementation
 
 function from (value, encodingOrOffset, length) {
@@ -279,7 +276,7 @@ function from (value, encodingOrOffset, length) {
   }
 
   if (value == null) {
-    throw TypeError(
+    throw new TypeError(
       'The first argument must be one of type string, Buffer, ArrayBuffer, Array, ' +
       'or Array-like Object. Received type ' + (typeof value)
     )
@@ -287,6 +284,12 @@ function from (value, encodingOrOffset, length) {
 
   if (isInstance(value, ArrayBuffer) ||
       (value && isInstance(value.buffer, ArrayBuffer))) {
+    return fromArrayBuffer(value, encodingOrOffset, length)
+  }
+
+  if (typeof SharedArrayBuffer !== 'undefined' &&
+      (isInstance(value, SharedArrayBuffer) ||
+      (value && isInstance(value.buffer, SharedArrayBuffer)))) {
     return fromArrayBuffer(value, encodingOrOffset, length)
   }
 
@@ -331,8 +334,8 @@ Buffer.from = function (value, encodingOrOffset, length) {
 
 // Note: Change prototype *after* Buffer.from is defined to workaround Chrome bug:
 // https://github.com/feross/buffer/pull/148
-Buffer.prototype.__proto__ = Uint8Array.prototype
-Buffer.__proto__ = Uint8Array
+Object.setPrototypeOf(Buffer.prototype, Uint8Array.prototype)
+Object.setPrototypeOf(Buffer, Uint8Array)
 
 function assertSize (size) {
   if (typeof size !== 'number') {
@@ -436,7 +439,8 @@ function fromArrayBuffer (array, byteOffset, length) {
   }
 
   // Return an augmented `Uint8Array` instance
-  buf.__proto__ = Buffer.prototype
+  Object.setPrototypeOf(buf, Buffer.prototype)
+
   return buf
 }
 
@@ -758,6 +762,9 @@ Buffer.prototype.inspect = function inspect () {
   if (this.length > max) str += ' ... '
   return '<Buffer ' + str + '>'
 }
+if (customInspectSymbol) {
+  Buffer.prototype[customInspectSymbol] = Buffer.prototype.inspect
+}
 
 Buffer.prototype.compare = function compare (target, start, end, thisStart, thisEnd) {
   if (isInstance(target, Uint8Array)) {
@@ -883,7 +890,7 @@ function bidirectionalIndexOf (buffer, val, byteOffset, encoding, dir) {
         return Uint8Array.prototype.lastIndexOf.call(buffer, val, byteOffset)
       }
     }
-    return arrayIndexOf(buffer, [ val ], byteOffset, encoding, dir)
+    return arrayIndexOf(buffer, [val], byteOffset, encoding, dir)
   }
 
   throw new TypeError('val must be string, number or Buffer')
@@ -1212,7 +1219,7 @@ function hexSlice (buf, start, end) {
 
   var out = ''
   for (var i = start; i < end; ++i) {
-    out += toHex(buf[i])
+    out += hexSliceLookupTable[buf[i]]
   }
   return out
 }
@@ -1249,7 +1256,8 @@ Buffer.prototype.slice = function slice (start, end) {
 
   var newBuf = this.subarray(start, end)
   // Return an augmented `Uint8Array` instance
-  newBuf.__proto__ = Buffer.prototype
+  Object.setPrototypeOf(newBuf, Buffer.prototype)
+
   return newBuf
 }
 
@@ -1738,6 +1746,8 @@ Buffer.prototype.fill = function fill (val, start, end, encoding) {
     }
   } else if (typeof val === 'number') {
     val = val & 255
+  } else if (typeof val === 'boolean') {
+    val = Number(val)
   }
 
   // Invalid ranges are not set to a default, so can range check early.
@@ -1793,11 +1803,6 @@ function base64clean (str) {
     str = str + '='
   }
   return str
-}
-
-function toHex (n) {
-  if (n < 16) return '0' + n.toString(16)
-  return n.toString(16)
 }
 
 function utf8ToBytes (string, units) {
@@ -1930,7 +1935,22 @@ function numberIsNaN (obj) {
   return obj !== obj // eslint-disable-line no-self-compare
 }
 
-},{"base64-js":1,"ieee754":4}],3:[function(require,module,exports){
+// Create lookup table for `toString('hex')`
+// See: https://github.com/feross/buffer/issues/219
+var hexSliceLookupTable = (function () {
+  var alphabet = '0123456789abcdef'
+  var table = new Array(256)
+  for (var i = 0; i < 16; ++i) {
+    var i16 = i * 16
+    for (var j = 0; j < 16; ++j) {
+      table[i16 + j] = alphabet[i] + alphabet[j]
+    }
+  }
+  return table
+})()
+
+}).call(this,require("buffer").Buffer)
+},{"base64-js":1,"buffer":2,"ieee754":4}],3:[function(require,module,exports){
 /*Copyright (c) 2016, TT Labs, Inc.
  All rights reserved.
 
@@ -4172,37 +4192,41 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    ctor.prototype = Object.create(superCtor.prototype, {
-      constructor: {
-        value: ctor,
-        enumerable: false,
-        writable: true,
-        configurable: true
-      }
-    });
+    if (superCtor) {
+      ctor.super_ = superCtor
+      ctor.prototype = Object.create(superCtor.prototype, {
+        constructor: {
+          value: ctor,
+          enumerable: false,
+          writable: true,
+          configurable: true
+        }
+      })
+    }
   };
 } else {
   // old school shim for old browsers
   module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    var TempCtor = function () {}
-    TempCtor.prototype = superCtor.prototype
-    ctor.prototype = new TempCtor()
-    ctor.prototype.constructor = ctor
+    if (superCtor) {
+      ctor.super_ = superCtor
+      var TempCtor = function () {}
+      TempCtor.prototype = superCtor.prototype
+      ctor.prototype = new TempCtor()
+      ctor.prototype.constructor = ctor
+    }
   }
 }
 
 },{}],6:[function(require,module,exports){
 /*!
- * JavaScript Cookie v2.2.0
+ * JavaScript Cookie v2.2.1
  * https://github.com/js-cookie/js-cookie
  *
  * Copyright 2006, 2015 Klaus Hartl & Fagner Brack
  * Released under the MIT license
  */
 ;(function (factory) {
-	var registeredInModuleLoader = false;
+	var registeredInModuleLoader;
 	if (typeof define === 'function' && define.amd) {
 		define(factory);
 		registeredInModuleLoader = true;
@@ -4232,125 +4256,123 @@ if (typeof Object.create === 'function') {
 		return result;
 	}
 
+	function decode (s) {
+		return s.replace(/(%[0-9A-Z]{2})+/g, decodeURIComponent);
+	}
+
 	function init (converter) {
-		function api (key, value, attributes) {
-			var result;
+		function api() {}
+
+		function set (key, value, attributes) {
 			if (typeof document === 'undefined') {
 				return;
 			}
 
-			// Write
+			attributes = extend({
+				path: '/'
+			}, api.defaults, attributes);
 
-			if (arguments.length > 1) {
-				attributes = extend({
-					path: '/'
-				}, api.defaults, attributes);
-
-				if (typeof attributes.expires === 'number') {
-					var expires = new Date();
-					expires.setMilliseconds(expires.getMilliseconds() + attributes.expires * 864e+5);
-					attributes.expires = expires;
-				}
-
-				// We're using "expires" because "max-age" is not supported by IE
-				attributes.expires = attributes.expires ? attributes.expires.toUTCString() : '';
-
-				try {
-					result = JSON.stringify(value);
-					if (/^[\{\[]/.test(result)) {
-						value = result;
-					}
-				} catch (e) {}
-
-				if (!converter.write) {
-					value = encodeURIComponent(String(value))
-						.replace(/%(23|24|26|2B|3A|3C|3E|3D|2F|3F|40|5B|5D|5E|60|7B|7D|7C)/g, decodeURIComponent);
-				} else {
-					value = converter.write(value, key);
-				}
-
-				key = encodeURIComponent(String(key));
-				key = key.replace(/%(23|24|26|2B|5E|60|7C)/g, decodeURIComponent);
-				key = key.replace(/[\(\)]/g, escape);
-
-				var stringifiedAttributes = '';
-
-				for (var attributeName in attributes) {
-					if (!attributes[attributeName]) {
-						continue;
-					}
-					stringifiedAttributes += '; ' + attributeName;
-					if (attributes[attributeName] === true) {
-						continue;
-					}
-					stringifiedAttributes += '=' + attributes[attributeName];
-				}
-				return (document.cookie = key + '=' + value + stringifiedAttributes);
+			if (typeof attributes.expires === 'number') {
+				attributes.expires = new Date(new Date() * 1 + attributes.expires * 864e+5);
 			}
 
-			// Read
+			// We're using "expires" because "max-age" is not supported by IE
+			attributes.expires = attributes.expires ? attributes.expires.toUTCString() : '';
 
-			if (!key) {
-				result = {};
+			try {
+				var result = JSON.stringify(value);
+				if (/^[\{\[]/.test(result)) {
+					value = result;
+				}
+			} catch (e) {}
+
+			value = converter.write ?
+				converter.write(value, key) :
+				encodeURIComponent(String(value))
+					.replace(/%(23|24|26|2B|3A|3C|3E|3D|2F|3F|40|5B|5D|5E|60|7B|7D|7C)/g, decodeURIComponent);
+
+			key = encodeURIComponent(String(key))
+				.replace(/%(23|24|26|2B|5E|60|7C)/g, decodeURIComponent)
+				.replace(/[\(\)]/g, escape);
+
+			var stringifiedAttributes = '';
+			for (var attributeName in attributes) {
+				if (!attributes[attributeName]) {
+					continue;
+				}
+				stringifiedAttributes += '; ' + attributeName;
+				if (attributes[attributeName] === true) {
+					continue;
+				}
+
+				// Considers RFC 6265 section 5.2:
+				// ...
+				// 3.  If the remaining unparsed-attributes contains a %x3B (";")
+				//     character:
+				// Consume the characters of the unparsed-attributes up to,
+				// not including, the first %x3B (";") character.
+				// ...
+				stringifiedAttributes += '=' + attributes[attributeName].split(';')[0];
 			}
 
+			return (document.cookie = key + '=' + value + stringifiedAttributes);
+		}
+
+		function get (key, json) {
+			if (typeof document === 'undefined') {
+				return;
+			}
+
+			var jar = {};
 			// To prevent the for loop in the first place assign an empty array
-			// in case there are no cookies at all. Also prevents odd result when
-			// calling "get()"
+			// in case there are no cookies at all.
 			var cookies = document.cookie ? document.cookie.split('; ') : [];
-			var rdecode = /(%[0-9A-Z]{2})+/g;
 			var i = 0;
 
 			for (; i < cookies.length; i++) {
 				var parts = cookies[i].split('=');
 				var cookie = parts.slice(1).join('=');
 
-				if (!this.json && cookie.charAt(0) === '"') {
+				if (!json && cookie.charAt(0) === '"') {
 					cookie = cookie.slice(1, -1);
 				}
 
 				try {
-					var name = parts[0].replace(rdecode, decodeURIComponent);
-					cookie = converter.read ?
-						converter.read(cookie, name) : converter(cookie, name) ||
-						cookie.replace(rdecode, decodeURIComponent);
+					var name = decode(parts[0]);
+					cookie = (converter.read || converter)(cookie, name) ||
+						decode(cookie);
 
-					if (this.json) {
+					if (json) {
 						try {
 							cookie = JSON.parse(cookie);
 						} catch (e) {}
 					}
 
-					if (key === name) {
-						result = cookie;
-						break;
-					}
+					jar[name] = cookie;
 
-					if (!key) {
-						result[name] = cookie;
+					if (key === name) {
+						break;
 					}
 				} catch (e) {}
 			}
 
-			return result;
+			return key ? jar[key] : jar;
 		}
 
-		api.set = api;
+		api.set = set;
 		api.get = function (key) {
-			return api.call(api, key);
+			return get(key, false /* read as raw */);
 		};
-		api.getJSON = function () {
-			return api.apply({
-				json: true
-			}, [].slice.call(arguments));
+		api.getJSON = function (key) {
+			return get(key, true /* read as json */);
 		};
-		api.defaults = {};
-
 		api.remove = function (key, attributes) {
-			api(key, '', extend(attributes, {
+			set(key, '', extend(attributes, {
 				expires: -1
 			}));
 		};
+
+		api.defaults = {};
 
 		api.withConverter = init;
 
@@ -4361,6 +4383,7 @@ if (typeof Object.create === 'function') {
 }));
 
 },{}],7:[function(require,module,exports){
+/*! safe-buffer. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> */
 /* eslint-disable node/no-deprecated-api */
 var buffer = require('buffer')
 var Buffer = buffer.Buffer
@@ -4382,6 +4405,8 @@ if (Buffer.from && Buffer.alloc && Buffer.allocUnsafe && Buffer.allocUnsafeSlow)
 function SafeBuffer (arg, encodingOrOffset, length) {
   return Buffer(arg, encodingOrOffset, length)
 }
+
+SafeBuffer.prototype = Object.create(Buffer.prototype)
 
 // Copy static methods from Buffer
 copyProps(Buffer, SafeBuffer)
@@ -5767,7 +5792,7 @@ module.exports = Sha512
         return {
             buff: this._buff,
             length: this._length,
-            hash: this._hash
+            hash: this._hash.slice()
         };
     };
 
@@ -5833,7 +5858,7 @@ module.exports = Sha512
      * A conversion will be applied if utf8 string is detected.
      *
      * @param {String}  str The string
-     * @param {Boolean} raw True to get the raw string, false to get the hex string
+     * @param {Boolean} [raw] True to get the raw string, false to get the hex string
      *
      * @return {String} The result
      */
@@ -5847,7 +5872,7 @@ module.exports = Sha512
      * Performs the md5 hash on a binary string.
      *
      * @param {String}  content The binary string
-     * @param {Boolean} raw     True to get the raw string, false to get the hex string
+     * @param {Boolean} [raw]     True to get the raw string, false to get the hex string
      *
      * @return {String} The result
      */
@@ -5973,7 +5998,7 @@ module.exports = Sha512
      * Performs the md5 hash on an array buffer.
      *
      * @param {ArrayBuffer} arr The array buffer
-     * @param {Boolean}     raw True to get the raw string, false to get the hex one
+     * @param {Boolean}     [raw] True to get the raw string, false to get the hex one
      *
      * @return {String} The result
      */
